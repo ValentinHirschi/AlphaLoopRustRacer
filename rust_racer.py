@@ -538,7 +538,7 @@ class Racer(object):
                 for rust_input in rust_inputs:
                     self.rust_worker.evaluate_cut(*rust_input)
             rust_timing = (time.time()-t_start)/float(n_runs*len(rust_inputs))*1000000.
-            logger.info("%-20s : %s%.6f \u00B5s%s / eval"%("Rust timing (cLTD)",bcolors.GREEN,rust_timing,bcolors.END))
+            logger.info("%-20s : %s%.6f \u00B5s%s / eval"%("C timing (cLTD)",bcolors.GREEN,rust_timing,bcolors.END))
         else:
             logger.info("Skipping profiling of rust because input file '%s' is not found."%pjoin(self._PROCESS_PATH,'Rust_inputs','%s.yaml'%self._SG_ID))
 
