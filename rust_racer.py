@@ -435,7 +435,7 @@ class Racer(object):
             )
 
             input_data = ['%d %d %d %d'%(self.amp_info['n_loops'], self.n_loops-self.amp_info['n_loops'], len(self.externals), self._N_INPUTS),]
-            logger.info("Generating %d input sample points into file '%s'..."%(self._N_INPUTS,pjoin(root_path,'inputs_%s_%d.txt'%(self._APPLICATION,self._N_INPUTS))))
+            logger.info("Generating %d input sample points into file '%s'..."%(self._N_INPUTS,'inputs_%s_%d.txt'%(self._APPLICATION,self._N_INPUTS)))
             for i_inputs in range(self._N_INPUTS):
 
                 # inputs = [
@@ -497,9 +497,9 @@ class Racer(object):
             with open(pjoin(root_path,'inputs_%s_%d.txt'%(self._APPLICATION,self._N_INPUTS)),'r') as f:
                 new_n_inputs=int(f.readline().strip().split(' ')[-1])
                 if new_n_inputs != self._N_INPUTS:
-                    logger.warning("Recycling input file '%s' which contains a different number of inputs (%d) than requested."%new_n_inputs)
+                    logger.warning("Recycling input file '%s' which contains a different number of inputs (%d) than requested."%('inputs_%s_%d.txt'%(self._APPLICATION,self._N_INPUTS),new_n_inputs))
                     self._N_INPUTS = new_n_inputs
-            logger.info("Recycling existing %d inputs found in %s..."%(self._N_INPUTS,pjoin(root_path,'inputs_%s_%d.txt'%(self._APPLICATION,self._N_INPUTS))))
+            logger.info("Recycling existing %d inputs found in %s..."%(self._N_INPUTS,'inputs_%s_%d.txt'%(self._APPLICATION,self._N_INPUTS)))
         self.generate_python_racer()
 
         self.generate_fortran_racer()
