@@ -3,7 +3,7 @@ A repo for exploring alternative implementations of Local Unitarity integrands
 
 # Install
 
-Place this repository in the `alpha_loop` directory and generate the three test proceses using the `<TEST_CASE>.aL` cards present in the repository.
+Place this repository in the `alpha_loop` directory and generate the three test processes using the `<TEST_CASE>.aL` cards present in the repository.
 
 # Run
 
