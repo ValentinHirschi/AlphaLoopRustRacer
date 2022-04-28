@@ -510,7 +510,7 @@ class Racer(object):
 
         logger.info("Profiling Python implementation...")
         python_result = subprocess.check_output(' '.join([sys.executable,'racer.py','--n_runs','%d'%n_runs]),cwd=root_path,shell=True).decode(encoding='utf8').split('\n')
-        logger.info("%-20s : %s%.6f \u00B5s%s / eval"%("Python timing",bcolors.GREEN,float(python_result[0]),bcolors.END))
+        logger.info("%-20s : %s%.6f \u00B5s%s / eval"%("Python timing (LTD)",bcolors.GREEN,float(python_result[0]),bcolors.END))
         logger.info("%-20s : %.2e%%"%("Python max diff.",float(python_result[1])))
 
         if os.path.exists(pjoin(self._PROCESS_PATH,'Rust_inputs','%s.yaml'%self._SG_ID)):
@@ -538,7 +538,7 @@ class Racer(object):
                 for rust_input in rust_inputs:
                     self.rust_worker.evaluate_cut(*rust_input)
             rust_timing = (time.time()-t_start)/float(n_runs*len(rust_inputs))*1000000.
-            logger.info("%-20s : %s%.6f \u00B5s%s / eval"%("Rust timing",bcolors.GREEN,rust_timing,bcolors.END))
+            logger.info("%-20s : %s%.6f \u00B5s%s / eval"%("Rust timing (cLTD)",bcolors.GREEN,rust_timing,bcolors.END))
         else:
             logger.info("Skipping profiling of rust because input file '%s' is not found."%pjoin(self._PROCESS_PATH,'Rust_inputs','%s.yaml'%self._SG_ID))
 
@@ -549,7 +549,7 @@ class Racer(object):
             raise RacerError("Could not successfully compile Fortran racer.")
         logger.info("Profiling Fortran implementation...")
         fortran_result = subprocess.check_output(' '.join(['./racer',]),cwd=root_path,shell=True).decode(encoding='utf8').split('\n')
-        logger.info("%-20s : %s%.6f \u00B5s%s / eval"%("Fortran timing",bcolors.GREEN,float(fortran_result[0]),bcolors.END))
+        logger.info("%-20s : %s%.6f \u00B5s%s / eval"%("Fortran timing (LTD)",bcolors.GREEN,float(fortran_result[0]),bcolors.END))
         logger.info("%-20s : %.2e%%"%("Fortran max diff.",float(fortran_result[1])))
 
 if __name__ == '__main__':
