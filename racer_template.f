@@ -118,9 +118,9 @@
             do J=1,n_inputs
                 if (dabs((res(j)-target_res(j))/target_res(j)).gt.max_diff) then
                     max_diff = dabs((res(j)-target_res(j))/target_res(j))
-                    max_diff_index = I
+                    max_diff_index = J
                 endif
             enddo
             write(*,*) max_diff*100.0d0
-            write(*,*) 'Max diff of ',max_diff*100.0d0,'%% for input #',max_diff_index,' with res=',res(j),' and target_res=',target_res(j)
+            write(*,*) 'Max diff of ',max_diff*100.0d0,'%% for input #',max_diff_index,' with res=',res(max_diff_index),' and target_res=',target_res(max_diff_index)
         end program test_cpu_time
