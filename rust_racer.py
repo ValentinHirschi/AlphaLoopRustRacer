@@ -38,6 +38,14 @@ class RacerError(Exception):
 _AL_PATH = os.path.abspath(pjoin(root_path,os.pardir))
 _MG_PATH = os.path.abspath(pjoin(root_path,os.pardir,os.pardir,os.pardir))
 
+# e.g. : /Users/vjhirsch/HEP_programs/gmp-6.2.1_build
+_GMP_PATH = os.environ.get('GMP_PATH',None)
+# e.g. : /Users/vjhirsch/HEP_programs/mpfr-4.1.0_build
+_MPFR_PATH = os.environ.get('MPFR_PATH',None)
+# e.g. : /Users/vjhirsch/HEP_programs/mpfr_fortran/mpfun20-mpfr-v24/fortran-var2
+_FORTRAN_MPFR_PATH = os.environ.get('FORTRAN_MPFR_PATH',None)
+_MPFR_AVAILABLE = all(p is not None for p in [_GMP_PATH,_MPFR_PATH,_FORTRAN_MPFR_PATH])
+
 _PARAMETERS = {
     'ge' : 0.30795376724436885,
     'gs' : 1.2177157847767197,
@@ -54,10 +62,11 @@ logging.basicConfig(format=FORMAT)
 
 class Racer(object):
     
-    def __init__(self, recycle_inputs, n_inputs, application):
+    def __init__(self, recycle_inputs, n_inputs, application,n_digits):
 
         self._APPLICATION = application
         self.set_process()
+        self.n_digits = n_digits
         self.recycle_inputs = recycle_inputs
         self._N_INPUTS = n_inputs
         self.sg_info = yaml.load(open(pjoin(self._PROCESS_PATH,'Rust_inputs','%s.yaml'%self._SG_ID),'r'), Loader=yaml.Loader)
@@ -299,14 +308,15 @@ class Racer(object):
 
         repl_dict['warmup_code'] = []
         repl_dict['warmup_code'].append("! Compute edge momenta")
-        repl_dict['warmup_code'].extend([
-            'em(%d,:)=(%s%s)'%(i_e,''.join(
-                '%ssglm(%d,:)'%('+' if sig > 0 else '-', i_sig) for i_sig, sig in enumerate(self.edge_signatures[e][0]) if sig!=0
-            ),''.join(
-                '%ssgextm(%d,:)'%('+' if sig > 0 else '-', (i_sig%(len(self.edge_signatures[e][1])//2))) for i_sig, sig in enumerate(self.edge_signatures[e][1]) if sig!=0
-            ))
-            for i_e, e in enumerate(self.sorted_edges)
-        ])
+        for i_comp in range(4):
+            repl_dict['warmup_code'].extend([
+                'em(%d,%d)=(%s%s)'%(i_e,i_comp,''.join(
+                    '%ssglm(%d,%d)'%(('+' if any(s!=0 for s in self.edge_signatures[e][0][:i_sig]) else '') if sig > 0 else '-', i_sig,i_comp) for i_sig, sig in enumerate(self.edge_signatures[e][0]) if sig!=0
+                ),''.join(
+                    '%ssgextm(%d,%d)'%(('+' if any(s!=0 for s in self.edge_signatures[e][0]) or any(s!=0 for s in self.edge_signatures[e][1][:i_sig]) else '') if sig > 0 else '-', (i_sig%(len(self.edge_signatures[e][1])//2)),i_comp) for i_sig, sig in enumerate(self.edge_signatures[e][1]) if sig!=0
+                ))
+                for i_e, e in enumerate(self.sorted_edges)
+            ])
         repl_dict['warmup_code'].append("! Compute on-shell energies")
         
         repl_dict['warmup_code'].append('do I=0,%d-1'%len(self.sorted_edges))
@@ -315,7 +325,7 @@ class Racer(object):
         repl_dict['warmup_code'].append('    enddo')
         repl_dict['warmup_code'].append('enddo')
         repl_dict['warmup_code'].extend([
-            'em_osE(%d)=dsqrt(sd(%d,%d))'%(i_e,i_e,i_e)
+            'em_osE(%d)=sqrt(sd(%d,%d))'%(i_e,i_e,i_e)
             for i_e, e in enumerate(self.sorted_edges)
         ])
 
@@ -335,7 +345,7 @@ class Racer(object):
             for (i_ll, i_prop, cut_sign, i_cs, edge_name) in ltd_cuts:
                 # Caching is better here
                 #repl_dict['evaluate_ltd_cut'].append('    em[%(en)d][0]=sqrt(em[%(en)d][1]*em[%(en)d][1]+em[%(en)d][2]*em[%(en)d][2]+em[%(en)d][3]*em[%(en)d][3])'%{'en':self.sorted_edges_map[edge_name]})
-                repl_dict['evaluate_ltd_cut'].append('em(%(en)d,0)=%(cs)sem_osE(%(en)d)'%{'cs': '+' if cut_sign>0 else '-','en':self.sorted_edges_map[edge_name]})
+                repl_dict['evaluate_ltd_cut'].append('em(%(en)d,0)=%(cs)sem_osE(%(en)d)'%{'cs': '' if cut_sign>0 else '-','en':self.sorted_edges_map[edge_name]})
             repl_dict['evaluate_ltd_cut'].append('! Set on-shell energies in LMB')
             # construct the cut basis to LTD loop momentum basis mapping
             mat = [self.amp_info['loop_lines'][i_ll]['signature'] for (i_ll, i_prop, cut_sign, i_cs, name) in ltd_cuts]
@@ -354,15 +364,17 @@ class Racer(object):
                     shifts.append(None)
             for i_lm, row in enumerate(transfo):                    
                 repl_dict['evaluate_ltd_cut'].append('lm(%d,0)=%s'%(
-                    i_lm, ''.join('%s%s'%('+' if sgn>0 else '-', 'em(%d,0)'%self.sorted_edges_map[ltd_cuts[i_col][-1]] if shifts[i_col] is None else 
+                    i_lm, ''.join('%s%s'%(
+                        ('+' if any(s!=0 for s in row[:i_col]) else '') 
+                        if sgn>0 else '-', 'em(%d,0)'%self.sorted_edges_map[ltd_cuts[i_col][-1]] if shifts[i_col] is None else 
                                     '(em(%d,0)%s)'%(self.sorted_edges_map[ltd_cuts[i_col][-1]], shifts[i_col])) for i_col, sgn in enumerate(row) if sgn!=0)
                 ))
             repl_dict['evaluate_ltd_cut'].append('! Set all_edge energies')
             repl_dict['evaluate_ltd_cut'].extend([
                 'em(%d,0)=(%s%s)'%(i_e,''.join(
-                    '%s%s(%d,0)'%('+' if sig > 0 else '-', 'sglm' if i_sig>=self.amp_info['n_loops'] else 'lm', i_sig) for i_sig, sig in enumerate(self.edge_signatures[e][0]) if sig!=0
+                    '%s%s(%d,0)'%(('+' if any(s!=0 for s in self.edge_signatures[e][0][:i_sig]) else '') if sig > 0 else '-', 'sglm' if i_sig>=self.amp_info['n_loops'] else 'lm', i_sig) for i_sig, sig in enumerate(self.edge_signatures[e][0]) if sig!=0
                 ),''.join(
-                    '%ssgextm(%d,0)'%('+' if sig > 0 else '-', (i_sig%(len(self.edge_signatures[e][1])//2))) for i_sig, sig in enumerate(self.edge_signatures[e][1]) if sig!=0
+                    '%ssgextm(%d,0)'%(('+' if any(s!=0 for s in self.edge_signatures[e][0]) or any(s!=0 for s in self.edge_signatures[e][1][:i_sig]) else '') if sig > 0 else '-', (i_sig%(len(self.edge_signatures[e][1])//2))) for i_sig, sig in enumerate(self.edge_signatures[e][1]) if sig!=0
                 ))
                 for i_e, e in enumerate(self.sorted_edges)
             ])
@@ -371,7 +383,7 @@ class Racer(object):
             ltd_cut_signs = {c[-1]:c[2] for c in  ltd_cuts}
             repl_dict['evaluate_ltd_cut'].append('denom = %s'%('*'.join( 
                 ('(em(%(i)d,0)*em(%(i)d,0)-sd(%(i)d,%(i)d))'%{'i':self.sorted_edges_map[prop['name']]}  if prop['name'] not in ltd_cut_signs else 
-                                            '(%s2*em(%d,0))'%('+' if ltd_cut_signs[prop['name']]>0 else '-',self.sorted_edges_map[prop['name']]))
+                                            '(%s2*em(%d,0))'%('' if ltd_cut_signs[prop['name']]>0 else '-',self.sorted_edges_map[prop['name']]))
                 for ll in self.amp_info['loop_lines'] for prop in ll['propagators']
             )))
             repl_dict['evaluate_ltd_cut'].append('! Compute numerator')
@@ -401,13 +413,31 @@ class Racer(object):
         with open(pjoin(root_path,'racer.f'),'w') as f:
             f.write(template%repl_dict)
 
+        repl_dict['float_type'] = 'real*16'
+        repl_dict['wrapup_code_f128'] = repl_dict['wrapup_code'].replace('res','out_res')
+        template = open(pjoin(root_path, 'racer_f128_template.f'),'r').read()
+        with open(pjoin(root_path,'racer_f128.f'),'w') as f:
+            f.write(template%repl_dict)
+
+        if _MPFR_AVAILABLE:
+            # Generate the mpfr version
+            repl_dict['float_type'] = 'type (mp_real)'
+            repl_dict['n_digits'] = self.n_digits
+            repl_dict['wrapup_code_mpfr'] = repl_dict['wrapup_code'].replace('res','out_res')
+            template = open(pjoin(root_path, 'racer_mpfr_template.f90'),'r').read()
+            with open(pjoin(root_path,'racer_mpfr.f90'),'w') as f:
+                f.write(template%repl_dict)
+        else:
+            logger.warning("Skipping generation of arbitrary fortran precision code because necessary resources are not supplied.")
+            logger.warning("Provide them with the environment variables: GMP_PATH, MPFR_PATH and FORTRAN_MPFR_PATH")
+
     def generate_racer(self):
 
         # Sanity check
         if self.amp_info['loop_momentum_map'] != [ 
             [ [ 0 if j!=i else 1 for j in range(self.n_loops)], [0,]*(self.n_loops-self.amp_info['n_loops']+len(self.externals))]
-            for i in range(self.amp_info['n_loops'])]:
-                raise RacerError("The supergraph must be generated with an LMB that directly matches the cut momentum basis.")
+                for i in range(self.amp_info['n_loops']) ]:
+            raise RacerError("The supergraph must be generated with an LMB that directly matches the cut momentum basis.")
 
         for i_cut, cut in enumerate(self.cut_info['cuts'][:-1]):
             if not all(s==0 for i_s, s in enumerate(cut['signature'][0]) if i_s != i_cut+self.amp_info['n_loops']) or cut['signature'][0][i_cut+self.amp_info['n_loops']]!=1:
@@ -504,53 +534,82 @@ class Racer(object):
 
         self.generate_fortran_racer()
 
-    def race(self):
+    def race(self, implementations):
 
         n_runs = 1
 
-        logger.info("Profiling Python implementation...")
-        python_result = subprocess.check_output(' '.join([sys.executable,'racer.py','--n_runs','%d'%n_runs]),cwd=root_path,shell=True).decode(encoding='utf8').split('\n')
-        logger.info("%-20s : %s%.6f \u00B5s%s / eval"%("Python timing (LTD)",bcolors.GREEN,float(python_result[0]),bcolors.END))
-        logger.info("%-20s : %.2e%%"%("Python max diff.",float(python_result[1])))
+        if 'ALL' in implementations or 'Python' in implementations:
+            logger.info("Profiling Python implementation...")
+            python_result = subprocess.check_output(' '.join([sys.executable,'racer.py','--n_runs','%d'%n_runs]),cwd=root_path,shell=True).decode(encoding='utf8').split('\n')
+            logger.info("%-35s : %s%.4f \u00B5s%s / eval"%("Python timing (LTD)",bcolors.GREEN,float(python_result[0]),bcolors.END))
+            logger.info("%-35s : %s%.2e%%%s"%("Python max diff.",bcolors.BLUE,float(python_result[1]),bcolors.END))
 
-        if os.path.exists(pjoin(self._PROCESS_PATH,'Rust_inputs','%s.yaml'%self._SG_ID)):
+        if 'ALL' in implementations or 'C' in implementations:
+            if os.path.exists(pjoin(self._PROCESS_PATH,'Rust_inputs','%s.yaml'%self._SG_ID)):
 
-            if sys.path[0]!=_AL_PATH:
-                sys.path.insert(0,_AL_PATH)
-            import ltd
-            self.rust_worker = ltd.CrossSection(
-                pjoin(self._PROCESS_PATH,'Rust_inputs','%s.yaml'%self._SG_ID),
-                pjoin(root_path,'racer_hyperparameters.yaml')
-            )
+                if sys.path[0]!=_AL_PATH:
+                    sys.path.insert(0,_AL_PATH)
+                import ltd
+                self.rust_worker = ltd.CrossSection(
+                    pjoin(self._PROCESS_PATH,'Rust_inputs','%s.yaml'%self._SG_ID),
+                    pjoin(root_path,'racer_hyperparameters.yaml')
+                )
+                
+                random.seed(1)
+                rust_inputs = []
+                for i_inputs in range(self._N_INPUTS):
+                    inputs = [ Vector([random.random() for _ in range(3)]) for i_loop in range(self.n_loops) ]
+                    scaling, scaling_jacobian = self.get_t_scaling(inputs)            
+                    rescaled_inputs = [ scaling*v for v in inputs]
+                    scaling, scaling_jacobian = self.get_t_scaling(rescaled_inputs)
+                    rust_inputs.append([rescaled_inputs,self.cut_id,scaling,scaling_jacobian])
             
-            random.seed(1)
-            rust_inputs = []
-            for i_inputs in range(self._N_INPUTS):
-                inputs = [ Vector([random.random() for _ in range(3)]) for i_loop in range(self.n_loops) ]
-                scaling, scaling_jacobian = self.get_t_scaling(inputs)            
-                rescaled_inputs = [ scaling*v for v in inputs]
-                scaling, scaling_jacobian = self.get_t_scaling(rescaled_inputs)
-                rust_inputs.append([rescaled_inputs,self.cut_id,scaling,scaling_jacobian])
-        
-            logger.info("Profiling Rust implementation...")
-            t_start = time.time()
-            for i_r in range(n_runs):
-                for rust_input in rust_inputs:
-                    self.rust_worker.evaluate_cut(*rust_input)
-            rust_timing = (time.time()-t_start)/float(n_runs*len(rust_inputs))*1000000.
-            logger.info("%-20s : %s%.6f \u00B5s%s / eval"%("C timing (cLTD)",bcolors.GREEN,rust_timing,bcolors.END))
-        else:
-            logger.info("Skipping profiling of rust because input file '%s' is not found."%pjoin(self._PROCESS_PATH,'Rust_inputs','%s.yaml'%self._SG_ID))
+                logger.info("Profiling Rust implementation...")
+                t_start = time.time()
+                for i_r in range(n_runs):
+                    for rust_input in rust_inputs:
+                        self.rust_worker.evaluate_cut(*rust_input)
+                rust_timing = (time.time()-t_start)/float(n_runs*len(rust_inputs))*1000000.
+                logger.info("%-35s : %s%.4f \u00B5s%s / eval"%("C timing (cLTD)",bcolors.GREEN,rust_timing,bcolors.END))
+            else:
+                logger.info("Skipping profiling of rust because input file '%s' is not found."%pjoin(self._PROCESS_PATH,'Rust_inputs','%s.yaml'%self._SG_ID))
 
-        logger.info("Compiling Fortran implementation...")
-        subprocess.call(' '.join(['make','clean']),cwd=root_path,shell=True,stdout=subprocess.DEVNULL)
-        subprocess.call(' '.join(['make','OPTLEVEL=3']),cwd=root_path,shell=True,stdout=subprocess.DEVNULL)
-        if not os.path.exists(pjoin(root_path,'racer')):
-            raise RacerError("Could not successfully compile Fortran racer.")
-        logger.info("Profiling Fortran implementation...")
-        fortran_result = subprocess.check_output(' '.join(['./racer',]),cwd=root_path,shell=True).decode(encoding='utf8').split('\n')
-        logger.info("%-20s : %s%.6f \u00B5s%s / eval"%("Fortran timing (LTD)",bcolors.GREEN,float(fortran_result[0]),bcolors.END))
-        logger.info("%-20s : %.2e%%"%("Fortran max diff.",float(fortran_result[1])))
+        if 'ALL' in implementations or 'Fortran' in implementations:
+            logger.info("Compiling Fortran implementation...")
+            subprocess.call(' '.join(['make','clean']),cwd=root_path,shell=True,stdout=subprocess.DEVNULL)
+            subprocess.call(' '.join(['make','racer','OPTLEVEL=3']),cwd=root_path,shell=True,stdout=subprocess.DEVNULL)
+            if not os.path.exists(pjoin(root_path,'racer')):
+                raise RacerError("Could not successfully compile Fortran racer.")
+            logger.info("Profiling Fortran implementation...")
+            fortran_result = subprocess.check_output(' '.join(['./racer',]),cwd=root_path,shell=True).decode(encoding='utf8').split('\n')
+            logger.info("%-35s : %s%.4f \u00B5s%s / eval"%("Fortran timing (LTD)",bcolors.GREEN,float(fortran_result[0]),bcolors.END))
+            logger.info("%-35s : %s%.2e%%%s"%("Fortran max diff.",bcolors.BLUE,float(fortran_result[1]),bcolors.END))
+
+        if 'ALL' in implementations or 'f128_Fortran' in implementations:
+            logger.info("Compiling Fortran f128 implementation...")
+            subprocess.call(' '.join(['make','clean_f128']),cwd=root_path,shell=True,stdout=subprocess.DEVNULL)
+            subprocess.call(' '.join(['make','racer_f128','OPTLEVEL=3']),cwd=root_path,shell=True,stdout=subprocess.DEVNULL)
+            if not os.path.exists(pjoin(root_path,'racer_f128')):
+                raise RacerError("Could not successfully compile Fortran f128 racer.")
+            logger.info("Profiling Fortran f128 implementation...")
+            fortran_result = subprocess.check_output(' '.join(['./racer_f128',]),cwd=root_path,shell=True).decode(encoding='utf8').split('\n')
+            logger.info("%-35s : %s%.4f \u00B5s%s / eval"%("Fortran f128 timing (LTD)",bcolors.GREEN,float(fortran_result[0]),bcolors.END))
+            logger.info("%-35s : %s%.2e%%%s"%("Fortran f128 max diff.",bcolors.BLUE,float(fortran_result[1]),bcolors.END))
+
+        if 'ALL' in implementations or 'MPFR_Fortran' in implementations:
+            if _MPFR_AVAILABLE:
+                logger.info("Compiling Fortran (%d digits) implementation..."%self.n_digits)
+                subprocess.call(' '.join(['make','clean_mpfr']),cwd=root_path,shell=True,stdout=subprocess.DEVNULL)
+                subprocess.call(' '.join(['make','racer_mpfr','OPTLEVEL=3','MPFRLIBPATH=%s/lib'%_MPFR_PATH,'GMPLIBPATH=%s/lib'%_GMP_PATH,'FORTRANMPFRPATH=%s'%_FORTRAN_MPFR_PATH]),cwd=root_path,shell=True,stdout=subprocess.DEVNULL)
+                if not os.path.exists(pjoin(root_path,'racer_mpfr')):
+                    raise RacerError("Could not successfully arbitrary precision compile Fortran racer.")
+                logger.info("Profiling Fortran (%d digits) implementation..."%self.n_digits)
+                fortran_mpfr_result = subprocess.check_output(' '.join(['./racer_mpfr',]),cwd=root_path,shell=True).decode(encoding='utf8').split('\n')
+                logger.info("%-35s : %s%.4f \u00B5s%s / eval"%("Fortran (%d digits) timing (LTD)"%self.n_digits,bcolors.GREEN,float(fortran_mpfr_result[0]),bcolors.END))
+                logger.info("%-35s : %s%.2e%%%s"%("Fortran (%d digits) max diff."%self.n_digits,bcolors.BLUE,float(fortran_mpfr_result[1]),bcolors.END))
+            else:
+                logger.warning("Skipping profiling of arbitrary fortran precision code because necessary resources are not supplied.")
+                logger.warning("Provide them with the environment variables: GMP_PATH, MPFR_PATH and FORTRAN_MPFR_PATH")
 
 if __name__ == '__main__':
 
@@ -558,8 +617,13 @@ if __name__ == '__main__':
 
     parser.add_argument('--n_inputs', '-n_inputs', dest='n_inputs', type=int, default=1000,
         help='Specify number of n_inputs to perform timing over (default: %%(default)s).')
+    parser.add_argument('--n_digits', '-n_digits', dest='n_digits', type=int, default=100,
+        help='Number of digits to compute for the arbitrary precision output (default: %%(default)s).')
     parser.add_argument('--application', '-a', dest='application', type=str, default="a_ddx_NLO_SG_QG0",
         choices=['a_ddx_NLO_SG_QG0','a_ddx_NNLO_SG_QG3','a_ddx_N3LO_SG_QG108'],
+        help='Supergraph cut contribution to race (default: %%(default)s).')
+    parser.add_argument('--implementations', '-i', dest='implementations', type=str, nargs='+', default="ALL",
+        choices=['ALL','Python','C','Fortran','f128_Fortran','MPFR_Fortran'],
         help='Supergraph cut contribution to race (default: %%(default)s).')
     parser.add_argument('--debug', '-d', dest='debug', action='store_true', default=False,
         help='Enable debug mode (default: %%(default)s).')
@@ -572,7 +636,7 @@ if __name__ == '__main__':
     if args.debug:
         logger.setLevel(logging.DEBUG)
 
-    racer = Racer((not args.no_recycle_inputs),args.n_inputs,args.application)
+    racer = Racer((not args.no_recycle_inputs),args.n_inputs,args.application, args.n_digits)
     racer.generate_racer()
     if not args.generate_only:
-        racer.race()
+        racer.race(args.implementations)

@@ -35,39 +35,63 @@
 
         end subroutine load_inputs
 
-        subroutine race(lm, sglm, extm, sgextm, res)
+        subroutine race(in_lm, in_sglm, in_extm, in_sgextm, out_res)
             implicit none
-            double precision lm(0:%(n_lm)d-1,0:3)
-            double precision sglm(0:%(n_sglm)d-1,0:3)
-            double precision extm(0:%(n_extm)d-1,0:3)
-            double precision sgextm(0:%(n_sgextm)d-1,0:3)
-            double precision em(0:%(n_edges)d-1,0:3)
-            double precision sd(0:%(n_edges)d-1,0:%(n_edges)d-1)
-            double precision em_osE(0:%(n_edges)d-1)
-            double precision num, denom
+            double precision in_lm(0:%(n_lm)d-1,0:3)
+            double precision in_sglm(0:%(n_sglm)d-1,0:3)
+            double precision in_extm(0:%(n_extm)d-1,0:3)
+            double precision in_sgextm(0:%(n_sgextm)d-1,0:3)
+            double precision out_res
+
+            %(float_type)s lm(0:%(n_lm)d-1,0:3)
+            %(float_type)s sglm(0:%(n_sglm)d-1,0:3)
+            %(float_type)s extm(0:%(n_extm)d-1,0:3)
+            %(float_type)s sgextm(0:%(n_sgextm)d-1,0:3)
+            %(float_type)s res
+
+            %(float_type)s em(0:%(n_edges)d-1,0:3)
+            %(float_type)s sd(0:%(n_edges)d-1,0:%(n_edges)d-1)
+            %(float_type)s em_osE(0:%(n_edges)d-1)
+            %(float_type)s num, denom
+
             double precision pi
             parameter (pi = acos(-1.0d0))
             
-            double precision res
             integer I,J
             include 'globals.inc'
 
             if (DBG) then
                 do I=0, %(n_lm)d-1
-                    write(*,*) "lm(",I,")=",(lm(I,J),J=0,3)
+                    write(*,*) "lm(",I,")=",(in_lm(I,J),J=0,3)
                 enddo
                 do I=0, %(n_sglm)d-1
-                    write(*,*) "sglm(",I,")=",(sglm(I,J),J=0,3)
+                    write(*,*) "sglm(",I,")=",(in_sglm(I,J),J=0,3)
                 enddo
                 do I=0, %(n_extm)d-1
-                    write(*,*) "extm(",I,")=",(extm(I,J),J=0,3)
+                    write(*,*) "extm(",I,")=",(in_extm(I,J),J=0,3)
                 enddo
                 do I=0, %(n_sgextm)d-1
-                    write(*,*) "sgextm(",I,")=",(sgextm(I,J),J=0,3)
+                    write(*,*) "sgextm(",I,")=",(in_sgextm(I,J),J=0,3)
                 enddo
             endif
 
-            res = 0.0d0
+!           Cast all inputs to arbitrary precision
+            do J=0,3
+                do I=0,%(n_lm)d-1
+                    lm(I,J) = REAL(in_lm(I,J), KIND=16)
+                enddo
+                do I=0,%(n_sglm)d-1
+                    sglm(I,J) = REAL(in_sglm(I,J), KIND=16)
+                enddo
+                do I=0,%(n_extm)d-1
+                    extm(I,J) = REAL(in_extm(I,J), KIND=16)
+                enddo
+                do I=0,%(n_sgextm)d-1
+                    sgextm(I,J) = REAL(in_sgextm(I,J), KIND=16)
+                enddo
+            enddo
+
+            res = 0.0E0_16
 
 !           Evaluae all common quantities
 %(warmup_code)s
@@ -76,7 +100,8 @@
 %(evaluate_ltd_cut)s
 
 !           Finalise computation
-%(wrapup_code)s
+            out_res = res
+%(wrapup_code_f128)s
 
         end subroutine race
 
