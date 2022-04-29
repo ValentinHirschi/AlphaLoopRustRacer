@@ -568,7 +568,10 @@ class Racer(object):
 
         repl_dict['wrapup_code'] = []
         c_parameter = {k:'%.16e'%v for k,v in _PARAMETERS.items()}
-        repl_dict['wrapup_code'].append('*out_res = (*out_res)*(%s)'%(self._C_NORMALISATION%c_parameter))
+        if f128:
+            repl_dict['wrapup_code'].append('*out_res = (*out_res)*(%s)'%(self._C_NORMALISATION%c_parameter))
+        else:
+            repl_dict['wrapup_code'].append('res = res*(%s)'%(self._C_NORMALISATION%c_parameter))
 
         for k in ['warmup_code','evaluate_ltd_cut','wrapup_code']:
             repl_dict[k] = '\n'.join('%s    %s;'%( (' ',l) if not l.startswith('!') else ('//',l[1:]) ) for l in repl_dict[k])
