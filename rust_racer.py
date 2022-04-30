@@ -91,12 +91,6 @@ class Racer(object):
         
         self.lmb = self.sg_info['loop_momentum_basis']
         self.n_loops = len(self.lmb)
-        self.edge_signatures = self.sg_info['edge_signatures']
-        self.sorted_edges = sorted(list(self.edge_signatures.keys()))
-        self.sorted_edges_map = {k : i_k for i_k, k in enumerate(self.sorted_edges)}
-        if self.cut_id is None:
-            raise RacerError("Could not find Cutkosky cut (%s)."%(','.join(sorted(list(self._CUT_TO_RACE)))))
-        
 
         self.cut_info = self.sg_info['cutkosky_cuts'][self.cut_id]
         self.amp_info = None
@@ -110,6 +104,41 @@ class Racer(object):
                 break
         if self.amp_info is None:
             raise RacerError("Could not find amplitude with no complex conjugation in diagram info.")
+
+        self.edge_signatures = self.sg_info['edge_signatures']
+
+        # Correct for the fact that edges in the LTD construction may have a different orientation than in the LMB
+        edge_orientation_sign = {}
+        for i_ll, ll in enumerate(self.amp_info['loop_lines']):
+            for i_prop, p in enumerate(self.amp_info['loop_lines'][i_ll]['propagators']):
+                edge_name = self.amp_info['loop_lines'][i_ll]['propagators'][i_prop]['name']
+                if self.amp_info['loop_lines'][i_ll]['propagators'][i_prop]['parametric_shift'][0][-1]!=0:
+                    raise RacerError("Propagator %s has a parametric shift depending on the dependent cut momentum."%edge_name)
+                reconstructed_signature = [
+                    self.amp_info['loop_lines'][i_ll]['signature']+self.amp_info['loop_lines'][i_ll]['propagators'][i_prop]['parametric_shift'][0][:-1],
+                    self.amp_info['loop_lines'][i_ll]['propagators'][i_prop]['parametric_shift'][1]
+                ]
+                if all(sr==so for sr, so in zip(reconstructed_signature[0],self.edge_signatures[edge_name][0])) and \
+                    all(sr==so for sr, so in zip(reconstructed_signature[1],self.edge_signatures[edge_name][1])):
+                    edge_orientation_sign[edge_name] = 1
+                elif all(sr==-so for sr, so in zip(reconstructed_signature[0],self.edge_signatures[edge_name][0])) and \
+                    all(sr==-so for sr, so in zip(reconstructed_signature[1],self.edge_signatures[edge_name][1])):
+                    edge_orientation_sign[edge_name] = -1
+                    logger.critical("%sThis use-case has edge %s with an orientation in the amplitude opposite to that in the LMB.%s"%(bcolors.RED, edge_name, bcolors.END))
+                    logger.critical("%sThere is an issue with the numerator in this case that I could not fix, so local evaluations will differ.%s"%(bcolors.RED, bcolors.END))
+                    #raise RacerError("Propagator %s has an orientation in the amplitude opposite to that in the LMB. There is an issue with this that I could not fix, so pick a generation LMB where this does not happen."%edge_name)
+                else:
+                    raise RacerError("Propagator %s has a parametric shift which is not +1 or -1 times its signature in the LMB."%edge_name)
+        for e, sig in self.edge_signatures.items():
+            if e in edge_orientation_sign and edge_orientation_sign[e]==-1:
+                sig[0] = [-s for s in sig[0] if s!=0]
+                sig[1] = [-s for s in sig[1] if s!=0]
+
+        self.sorted_edges = sorted(list(self.edge_signatures.keys()))
+        self.sorted_edges_map = {k : i_k for i_k, k in enumerate(self.sorted_edges)}
+        if self.cut_id is None:
+            raise RacerError("Could not find Cutkosky cut (%s)."%(','.join(sorted(list(self._CUT_TO_RACE)))))
+        
 
         logger.info("Will race cut #%d (%s) of %s%s%s over %s%d%s inputs"%(
             self.cut_id, ', '.join(sorted(list(self._CUT_TO_RACE))),bcolors.GREEN,self._APPLICATION,bcolors.END,bcolors.BLUE,self._N_INPUTS,bcolors.END)
@@ -195,6 +224,23 @@ class Racer(object):
                 self._C_NORMALISATION = """ 1 """
             #############################################################################################
 
+        elif self._APPLICATION == 'a_ddx_N3LO_SG_QG58':
+
+            self._SG_ID = "SG_QG58"
+            self._PROCESS_PATH = pjoin(_MG_PATH,'LU_a_ddx_N3LO_SG_QG58_bare')
+            self._CUT_TO_RACE = {'pq4','pq3'}
+            if _INCLUDE_NUMERATOR:
+                self._RAW_NUMERATOR = """ 256*((em[pq10][0]*em[pq9][0] - sd[pq10][pq9])*(em[pq3][0]*em[pq4][0] - sd[pq3][pq4]) - (em[pq10][0]*em[pq4][0] - sd[pq10][pq4])*(em[pq3][0]*em[pq9][0] - sd[pq3][pq9]) + 
+  (em[pq10][0]*em[pq3][0] - sd[pq10][pq3])*(em[pq4][0]*em[pq9][0] - sd[pq4][pq9]))*((em[pq1][0]*em[pq8][0] - sd[pq1][pq8])*(em[pq2][0]*em[pq6][0] - sd[pq2][pq6]) - 
+  (em[pq1][0]*em[pq6][0] - sd[pq1][pq6])*(em[pq2][0]*em[pq8][0] - sd[pq2][pq8]) + (em[pq1][0]*em[pq2][0] - sd[pq1][pq2])*(em[pq6][0]*em[pq8][0] - sd[pq6][pq8])) """
+                self._NORMALISATION = """ %(h1)s*%(ge)s**2*%(gs)s**6/((2.0e0*pi)**5*(9.0e0))/(36.0e0*pi**6) """
+                self._C_NORMALISATION = """ %(h1)s*pow(%(ge)s,2)*pow(%(gs)s,6)/(pow((2.0e0*pi),5)*(9.0e0))/(36.0e0*pow(pi,6)) """
+            else:
+                self._RAW_NUMERATOR = """ 1 """
+                self._NORMALISATION = """ 1 """
+                self._C_NORMALISATION = """ 1 """
+            #############################################################################################
+
         else:
             raise RacerError("Application '%s' not reckognised."%self._APPLICATION)
 
@@ -234,11 +280,11 @@ class Racer(object):
             for cuts in itertools.product(*loop_lines_cut):
                 all_ltd_cuts.append(cuts)
         repl_dict['n_ltd_cuts'] = len(all_ltd_cuts)
-
         for i_ltd_cut, ltd_cuts in enumerate(all_ltd_cuts):
             repl_dict['evaluate_ltd_cut'].append("# LTD cut #%d, cut structure #%d: %s"%(i_ltd_cut, ltd_cuts[0][3], ','.join(p[-1] for p in ltd_cuts)))
             repl_dict['evaluate_ltd_cut'].append('%sif i_ltd_cut==%d:'%('el' if i_ltd_cut!=0 else '',i_ltd_cut))
             repl_dict['evaluate_ltd_cut'].append('    # Set on-shell energies of cut momenta')
+
             for (i_ll, i_prop, cut_sign, i_cs, edge_name) in ltd_cuts:
                 # Caching is better here
                 #repl_dict['evaluate_ltd_cut'].append('    em[%(en)d][0]=sqrt(em[%(en)d][1]*em[%(en)d][1]+em[%(en)d][2]*em[%(en)d][2]+em[%(en)d][3]*em[%(en)d][3])'%{'en':self.sorted_edges_map[edge_name]})
@@ -268,7 +314,7 @@ class Racer(object):
             repl_dict['evaluate_ltd_cut'].append('    sglm = lm+[%s]'%(','.join('em[%d]'%self.sorted_edges_map[e_name] for e_name in self.lmb[self.amp_info['n_loops']:])))
             repl_dict['evaluate_ltd_cut'].append('    set_em_energies(sglm, sgextm, em)')
             repl_dict['evaluate_ltd_cut'].append('    # Compute denominator')
-            
+
             ltd_cut_signs = {c[-1]:c[2] for c in  ltd_cuts}
             repl_dict['evaluate_ltd_cut'].append('    denom = %s'%('*'.join( 
                 ('(em[%(i)d][0]*em[%(i)d][0]-sd[%(i)d][%(i)d])'%{'i':self.sorted_edges_map[prop['name']]}  if prop['name'] not in ltd_cut_signs else 
@@ -809,7 +855,7 @@ if __name__ == '__main__':
     parser.add_argument('--n_digits', '-n_digits', dest='n_digits', type=int, default=32,
         help='Number of digits to compute for the arbitrary precision output (default: %%(default)s).')
     parser.add_argument('--application', '-a', dest='application', type=str, default="a_ddx_NLO_SG_QG0",
-        choices=['a_ddx_NLO_SG_QG0','a_ddx_NNLO_SG_QG3','a_ddx_N3LO_SG_QG108'],
+        choices=['a_ddx_NLO_SG_QG0','a_ddx_NNLO_SG_QG3','a_ddx_N3LO_SG_QG108','a_ddx_N3LO_SG_QG58'],
         help='Supergraph cut contribution to race (default: %%(default)s).')
     parser.add_argument('--implementations', '-i', dest='implementations', type=str, nargs='+', default="ALL",
         choices=['ALL','Python','Rust_C','C','Fortran','f128_Fortran','f128_C','MPFR_Fortran'],
@@ -818,12 +864,17 @@ if __name__ == '__main__':
         help='Enable debug mode (default: %%(default)s).')
     parser.add_argument('--no_recycle_inputs', '-nr', dest='no_recycle_inputs', action='store_true', default=False,
         help='Force input generation even if inputs_<application>_<n_points>.txt is found (default: %%(default)s).')
+    parser.add_argument('--no_numerator', '-nn', dest='no_numerator', action='store_true', default=False,
+        help='Consider a unit numerator (default: %%(default)s).')
     parser.add_argument('--generate_only', '-go', dest='generate_only', action='store_true', default=False,
         help='Only generate codes and not race (default: %%(default)s).')
     args = parser.parse_args()
 
     if args.debug:
         logger.setLevel(logging.DEBUG)
+    
+    if args.no_numerator:
+        _INCLUDE_NUMERATOR = False
 
     racer = Racer((not args.no_recycle_inputs),args.n_inputs,args.application, args.n_digits)
     racer.generate_racer()
